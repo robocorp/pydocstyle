@@ -419,6 +419,15 @@ D419 = D4xx.create_error(
     'D419',
     'Docstring is empty',
 )
+D420 = D4xx.create_error(
+    'D420',
+    'Docstring blocks are not in correct order.',
+)
+D421 = D4xx.create_error(
+    'D421',
+    'Description for argument / raise starts on a new line or is missing.',
+    'argument / raise: {0!r}, in {1!r}',
+)
 
 
 class AttrDict(dict):
