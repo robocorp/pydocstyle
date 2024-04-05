@@ -6,6 +6,7 @@ import tokenize as tk
 from collections import namedtuple
 from itertools import chain, takewhile
 from re import compile as re
+from re import IGNORECASE
 from textwrap import dedent
 
 from . import violations
@@ -54,6 +55,18 @@ class ConventionChecker:
     D40x: Docstring content issues
 
     """
+    _RE_ARGSTART = re(r"(^ {8})(\**[\w\[\]_]{1,}?)\s*?:(.{2,})?", IGNORECASE)
+
+    SECTIONS_WITH_ARGS = ['Args', 'Raises']
+
+    BLOCK_ORDER = [
+        'Example',
+        'Args',
+        'Returns',
+        'Yields',
+        'Raises',
+        'Note',
+    ]
 
     NUMPY_SECTION_NAMES = (
         'Short Summary',
@@ -434,7 +447,6 @@ class ConventionChecker:
                 'ur"""',
                 "ur'''",
             ]
-
             lines = ast.literal_eval(docstring).split('\n')
             if len(lines) > 1:
                 first = docstring.split("\n")[0].strip().lower()
@@ -658,7 +670,7 @@ class ConventionChecker:
             context.line.strip().lstrip(context.section_name.strip()).strip()
         )
 
-        section_suffix_is_only_colon = section_name_suffix == ':'
+        section_suffix_starts_with = section_name_suffix.startswith(':')
 
         punctuation = [',', ';', '.', '-', '\\', '/', ']', '}', ')']
         prev_line_ends_with_punctuation = any(
@@ -666,7 +678,7 @@ class ConventionChecker:
         )
 
         this_line_looks_like_a_section_name = (
-            is_blank(section_name_suffix) or section_suffix_is_only_colon
+            is_blank(section_name_suffix) or section_suffix_starts_with
         )
 
         prev_line_looks_like_end_of_paragraph = (
@@ -747,6 +759,16 @@ class ConventionChecker:
                 yield violations.D414(section_name)
 
     @classmethod
+    def _check_args_description_starts_with_new_line(cls, context):
+        for line in context.following_lines:
+            if not cls._RE_ARGSTART.match(line):
+                continue
+
+            argument_description = cls._RE_ARGSTART.match(line).group()
+            if argument_description.endswith(":"):
+                yield violations.D421(argument_description[:-1].strip(), context.section_name)
+
+    @classmethod
     def _check_common_section(
         cls, docstring, definition, context, valid_section_names
     ):
@@ -762,6 +784,9 @@ class ConventionChecker:
         """
         indentation = cls._get_docstring_indent(definition, docstring)
         capitalized_section = context.section_name.title()
+
+        if context.section_name in cls.SECTIONS_WITH_ARGS:
+            yield from cls._check_args_description_starts_with_new_line(context)
 
         if (
             context.section_name not in valid_section_names
@@ -992,8 +1017,9 @@ class ConventionChecker:
                 for arg_name in function_args
                 if not is_def_arg_private(arg_name)
             ]
+
             missing_args = set(function_args) - docstring_args
-            if missing_args:
+            if missing_args or (function_args and not docstring_args):
                 yield violations.D417(
                     ", ".join(sorted(missing_args)), definition.name
                 )
@@ -1020,9 +1046,6 @@ class ConventionChecker:
             yield violations.D416(
                 capitalized_section + ":", context.line.strip()
             )
-
-        if capitalized_section in ("Args", "Arguments"):
-            yield from cls._check_args_section(docstring, definition, context)
 
     @staticmethod
     def _get_section_contexts(lines, valid_section_names):
@@ -1139,10 +1162,27 @@ class ConventionChecker:
         Yields all violation from `_check_google_section` for each valid
         Google-style section.
         """
+
+        args_section_found = 0
+        found_blocks = []
         for ctx in self._get_section_contexts(
             lines, self.GOOGLE_SECTION_NAMES
         ):
+            found_blocks.append(ctx.section_name)
+
+            if ctx.section_name in ['Args', 'Arguments']:
+                args_section_found = 1
+                yield from self._check_args_section(docstring, definition, ctx)
+
             yield from self._check_google_section(docstring, definition, ctx)
+
+        if not args_section_found:
+            yield from ConventionChecker._check_missing_args(set(), definition)
+
+        if found_blocks:
+            current_blocks_order = [block for block in self.BLOCK_ORDER if block in found_blocks]
+            if found_blocks != current_blocks_order:
+                yield violations.D420(definition.name)
 
     @check_for(Definition)
     def check_docstring_sections(self, definition, docstring):
@@ -1152,16 +1192,6 @@ class ConventionChecker:
 
         lines = docstring.split("\n")
         if len(lines) < 2:
-            return
-
-        found_numpy = yield from self._check_numpy_sections(
-            lines, definition, docstring
-        )
-        if found_numpy:
-            return
-
-        found_sphinx = yield from self._check_sphinx_params(lines, definition)
-        if found_sphinx:
             return
 
         yield from self._check_google_sections(lines, definition, docstring)
