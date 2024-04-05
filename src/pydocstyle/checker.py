@@ -57,24 +57,15 @@ class ConventionChecker:
     """
     _RE_ARGSTART = re(r"(^ {8})(\**[\w\[\]_]{1,}?)\s*?:(.{2,})?", IGNORECASE)
 
-    SECTIONS_WITH_ARGS = [
-        'Args',
-        'Arguments',
-        'Raises'
-    ]
+    SECTIONS_WITH_ARGS = ['Args', 'Raises']
 
     BLOCK_ORDER = [
         'Example',
-        'Examples',
         'Args',
-        'Arguments',
-        'Return',
         'Returns',
-        'Yield',
         'Yields',
         'Raises',
         'Note',
-        'Notes'
     ]
 
     NUMPY_SECTION_NAMES = (
